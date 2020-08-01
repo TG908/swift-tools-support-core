@@ -20,6 +20,7 @@ public struct Lock {
     }
 
     /// Execute the given block while holding the lock.
+    @discardableResult
     public func withLock<T> (_ body: () throws -> T) rethrows -> T {
         _lock.lock()
         defer { _lock.unlock() }
@@ -45,6 +46,14 @@ public final class FileLock {
     /// Path to the lock file.
     private let lockFile: AbsolutePath
 
+
+    public enum LockType {
+        ///Place an exclusive lock. Only one process may hold an exclusive lock for a given file at a given time.
+        case exclusive
+        /// Place a shared lock. More than one process may hold a shared lock for a given file at a given time.
+        case shared
+    }
+
     /// Create an instance of process lock with a name and the path where
     /// the lock file can be created.
     ///
@@ -56,19 +65,32 @@ public final class FileLock {
     /// Try to aquire a lock. This method will block until lock the already aquired by other process.
     ///
     /// Note: This method can throw if underlying POSIX methods fail.
-    public func lock() throws {
+    public func lock(type: LockType = .exclusive) throws {
       #if os(Windows)
         if handle == nil {
             let h = lockFile.pathString.withCString(encodedAs: UTF16.self, {
-                CreateFileW(
-                    $0,
-                    UInt32(GENERIC_READ) | UInt32(GENERIC_WRITE),
-                    0,
-                    nil,
-                    DWORD(OPEN_ALWAYS),
-                    DWORD(FILE_ATTRIBUTE_NORMAL),
-                    nil
-                )
+                switch mode {
+                case .exclusive:
+                    CreateFileW(
+                        $0,
+                        UInt32(GENERIC_READ) | UInt32(GENERIC_WRITE),
+                        0,
+                        nil,
+                        DWORD(OPEN_ALWAYS),
+                        DWORD(FILE_ATTRIBUTE_NORMAL),
+                        nil
+                    )
+                case .shared:
+                    CreateFileW(
+                        $0,
+                        UInt32(GENERIC_READ) | UInt32(GENERIC_WRITE),
+                        DWORD(FILE_SHARE_READ),
+                        nil,
+                        DWORD(OPEN_ALWAYS),
+                        DWORD(FILE_ATTRIBUTE_NORMAL),
+                        nil
+                    )
+                }
             })
             if h == INVALID_HANDLE_VALUE {
                 throw FileSystemError(errno: Int32(GetLastError()))
@@ -79,9 +101,17 @@ public final class FileLock {
         overlapped.Offset = 0
         overlapped.OffsetHigh = 0
         overlapped.hEvent = nil
-        if !LockFileEx(handle, DWORD(LOCKFILE_EXCLUSIVE_LOCK), 0,
-                       DWORD(INT_MAX), DWORD(INT_MAX), &overlapped) {
-            throw ProcessLockError.unableToAquireLock(errno: Int32(GetLastError()))
+        switch mode {
+        case .exclusive:
+            if !LockFileEx(handle, DWORD(LOCKFILE_EXCLUSIVE_LOCK), 0,
+                           DWORD(INT_MAX), DWORD(INT_MAX), &overlapped) {
+                throw ProcessLockError.unableToAquireLock(errno: Int32(GetLastError()))
+            }
+        case .shared:
+            if !LockFileEx(handle, 0, 0,
+                           DWORD(INT_MAX), DWORD(INT_MAX), &overlapped) {
+                throw ProcessLockError.unableToAquireLock(errno: Int32(GetLastError()))
+            }
         }
       #else
         // Open the lock file.
@@ -94,7 +124,9 @@ public final class FileLock {
         }
         // Aquire lock on the file.
         while true {
-            if flock(fileDescriptor!, LOCK_EX) == 0 {
+            if type == .exclusive && flock(fileDescriptor!, LOCK_EX) == 0 {
+                break
+            } else if type == .shared && flock(fileDescriptor!, LOCK_SH) == 0 {
                 break
             }
             // Retry if interrupted.
@@ -129,8 +161,9 @@ public final class FileLock {
     }
 
     /// Execute the given block while holding the lock.
-    public func withLock<T>(_ body: () throws -> T) throws -> T {
-        try lock()
+    @discardableResult
+    public func withLock<T>(type: LockType = .exclusive, _ body: () throws -> T) throws -> T {
+        try lock(type: type)
         defer { unlock() }
         return try body()
     }
