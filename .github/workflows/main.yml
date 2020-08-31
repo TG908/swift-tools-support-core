@@ -1,7 +1,6 @@
 name: Sync Fork
 
 on:
-  schedule:
   workflow_dispatch:
 
 jobs:
