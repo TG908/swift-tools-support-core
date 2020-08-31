@@ -281,7 +281,19 @@ private class LocalFileSystem: FileSystem {
 
     var currentWorkingDirectory: AbsolutePath? {
         let cwdStr = FileManager.default.currentDirectoryPath
+
+#if _runtime(_ObjC)
+        // The ObjC runtime indicates that the underlying Foundation has ObjC
+        // interoperability in which case the return type of
+        // `fileSystemRepresentation` is different from the Swift implementation
+        // of Foundation.
         return try? AbsolutePath(validating: cwdStr)
+#else
+        let fsr: UnsafePointer<Int8> = cwdStr.fileSystemRepresentation
+        defer { fsr.deallocate() }
+
+        return try? AbsolutePath(validating: String(cString: fsr))
+#endif
     }
 
     func changeCurrentWorkingDirectory(to path: AbsolutePath) throws {
@@ -900,6 +912,7 @@ extension FileSystem {
     }
 }
 
+#if !os(Windows)
 extension dirent {
     /// Get the directory name.
     ///
@@ -911,4 +924,4 @@ extension dirent {
         }
     }
 }
-
+#endif
