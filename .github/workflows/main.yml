@@ -15,3 +15,4 @@ jobs:
           owner: apple
           base: master
           head: master
+          merge_method: rebase
