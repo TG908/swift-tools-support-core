@@ -48,7 +48,9 @@ add_library(TSCBasic
   TerminalController.swift
   Thread.swift
   Tuple.swift
-  misc.swift)
+  misc.swift
+  WeakDictionary.swift)
+  
 target_compile_options(TSCBasic PUBLIC
   # Don't use GNU strerror_r on Android.
   "$<$<PLATFORM_ID:Android>:SHELL:-Xcc -U_GNU_SOURCE>"
@@ -57,8 +59,10 @@ target_compile_options(TSCBasic PUBLIC
 target_link_libraries(TSCBasic PUBLIC
   TSCLibc)
 if(NOT CMAKE_SYSTEM_NAME STREQUAL Darwin)
-  target_link_libraries(TSCBasic PUBLIC
-    Foundation)
+  if(Foundation_FOUND)
+    target_link_libraries(TSCBasic PUBLIC
+      Foundation)
+  endif()
 endif()
 target_link_libraries(TSCBasic PRIVATE
   $<$<PLATFORM_ID:Windows>:Pathcch>)

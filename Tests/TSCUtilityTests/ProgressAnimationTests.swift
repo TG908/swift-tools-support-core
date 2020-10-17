@@ -40,18 +40,6 @@ final class ProgressAnimationTests: XCTestCase {
         XCTAssertEqual(outStream.bytes.validDescription, "")
     }
 
-    func testPercentProgressAnimationTTY() throws {
-        let output = try readingTTY { tty in
-            let animation = PercentProgressAnimation(stream: tty.outStream, header: "TestHeader")
-            runProgressAnimation(animation)
-        }
-
-        let startCyan = "\u{1B}[36m"
-        let bold = "\u{1B}[1m"
-        let end = "\u{1B}[0m"
-        XCTAssertMatch(output.spm_chuzzle(), .prefix("\(startCyan)\(bold)TestHeader\(end)"))
-    }
-
     func testNinjaProgressAnimationDumbTerminal() {
         var outStream = BufferedOutputByteStream()
         var animation = NinjaProgressAnimation(stream: outStream)
@@ -72,6 +60,19 @@ final class ProgressAnimationTests: XCTestCase {
 
         animation.complete(success: true)
         XCTAssertEqual(outStream.bytes.validDescription, "")
+    }
+
+  #if !os(Windows) // PseudoTerminal is not supported in Windows
+    func testPercentProgressAnimationTTY() throws {
+        let output = try readingTTY { tty in
+            let animation = PercentProgressAnimation(stream: tty.outStream, header: "TestHeader")
+            runProgressAnimation(animation)
+        }
+
+        let startCyan = "\u{1B}[36m"
+        let bold = "\u{1B}[1m"
+        let end = "\u{1B}[0m"
+        XCTAssertMatch(output.spm_chuzzle(), .prefix("\(startCyan)\(bold)TestHeader\(end)"))
     }
 
     func testNinjaProgressAnimationTTY() throws {
@@ -107,21 +108,22 @@ final class ProgressAnimationTests: XCTestCase {
 
         var output = ""
         let thread = Thread {
-            while let out = terminal.readMaster() {
+            while let out = terminal.readPrimary() {
                 output += out
             }
         }
 
         thread.start()
         closure(terminal)
-        terminal.closeSlave()
+        terminal.closeSecondary()
 
         // Make sure to read the complete output before checking it.
         thread.join()
-        terminal.closeMaster()
+        terminal.closePrimary()
 
         return output
     }
+  #endif
 
     private func runProgressAnimation(_ animation: ProgressAnimationProtocol) {
         for i in 0...5 {
